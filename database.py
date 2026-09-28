@@ -1,27 +1,158 @@
 """
-database.py — Configurazione engine e sessione SQLAlchemy
+database.py
+-----------
+Configurazione del database SQLAlchemy per il progetto
+"Gestione Dispositivi Medici".
 """
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+import os
+
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import sessionmaker
 
 from models import Base
 
-# Per sviluppo locale: SQLite (file singolo, zero configurazione)
-DATABASE_URL = "sqlite:///dispositivi_medici.db"
 
-# Per produzione, basta cambiare la URL (nessuna modifica al resto del codice):
-# DATABASE_URL = "postgresql+psycopg2://user:password@localhost:5432/dispositivi_medici"
+# ============================================================
+# CONFIGURAZIONE
+# ============================================================
 
-engine = create_engine(DATABASE_URL, echo=False)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+load_dotenv()
 
-
-def init_db() -> None:
-    """Crea tutte le tabelle nel database, se non esistono già."""
-    Base.metadata.create_all(bind=engine)
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "sqlite:///./dispositivi_medici.db",
+)
 
 
-def get_session() -> Session:
-    """Restituisce una nuova sessione. Ricordarsi di chiuderla (o usarla come context manager)."""
+# ============================================================
+# ENGINE
+# ============================================================
+
+connect_args = {}
+
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {
+        "check_same_thread": False
+    }
+
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+    future=True,
+)
+
+
+# ============================================================
+# SESSION
+# ============================================================
+
+SessionLocal = sessionmaker(
+    bind=engine,
+    autoflush=False,
+    autocommit=False,
+)
+
+
+# ============================================================
+# DATABASE INITIALIZATION
+# ============================================================
+
+def init_db():
+    """
+    Crea le tabelle mancanti.
+
+    Non elimina le tabelle o i dati già presenti.
+    """
+
+    Base.metadata.create_all(
+        bind=engine
+    )
+
+
+# ============================================================
+# FASTAPI DATABASE DEPENDENCY
+# ============================================================
+
+def get_db():
+    """
+    Fornisce una sessione SQLAlchemy alle API FastAPI.
+    """
+
+    db = SessionLocal()
+
+    try:
+        yield db
+
+    finally:
+        db.close()
+
+
+# ============================================================
+# COMPATIBILITÀ
+# ============================================================
+
+def get_session():
+    """
+    Compatibilità con il vecchio codice del progetto.
+
+    Restituisce una normale sessione SQLAlchemy.
+    """
+
     return SessionLocal()
+
+
+# ============================================================
+# DATABASE INFORMATION
+# ============================================================
+
+def get_database_tables():
+    """
+    Restituisce l'elenco delle tabelle presenti nel database.
+    """
+
+    inspector = inspect(engine)
+
+    return inspector.get_table_names()
+
+
+def database_status():
+    """
+    Restituisce lo stato del database.
+    """
+
+    tables = get_database_tables()
+
+    return {
+        "database_url": DATABASE_URL,
+        "tables": tables,
+        "initialized": len(tables) > 0,
+    }
+
+
+# ============================================================
+# TEST / ESECUZIONE DIRETTA
+# ============================================================
+
+if __name__ == "__main__":
+
+    print("=" * 60)
+    print(" INIZIALIZZAZIONE DATABASE")
+    print("=" * 60)
+
+    init_db()
+
+    tables = get_database_tables()
+
+    print()
+    print("Database inizializzato correttamente.")
+    print()
+    print("Tabelle presenti:")
+
+    for table in tables:
+        print(f"  - {table}")
+
+    print()
+    print("=" * 60)
